@@ -3,6 +3,7 @@ import random
 from typing import List, Callable, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from gamification import GamificationManager
 
 
 class EventArgs:
@@ -120,6 +121,9 @@ class DeliveryManager:
         self._waiting_recipes_max = 4
         self._successful_recipes_amount = 0
         self._last_update_time = time.time()
+        
+        # ゲーミフィケーション機能の初期化
+        self.gamification = GamificationManager()
     
     @classmethod
     def get_instance(cls, recipe_list_so: RecipeListSO = None) -> 'DeliveryManager':
@@ -181,9 +185,12 @@ class DeliveryManager:
                     self._successful_recipes_amount += 1
                     self._waiting_recipe_so_list.pop(i)
                     
+                    # ゲーミフィケーション: ポモドーロ完了
+                    gamification_result = self.gamification.complete_pomodoro(25)
+                    
                     # 成功イベント発火
                     self.on_recipe_completed.invoke(self)
-                    self.on_recipe_success.invoke(self)
+                    self.on_recipe_success.invoke(self, gamification_result)
                     return
         
         # 一致するレシピが見つからなかった場合
@@ -196,6 +203,29 @@ class DeliveryManager:
     def get_successful_recipes_amount(self) -> int:
         """成功したレシピ数を取得"""
         return self._successful_recipes_amount
+    
+    def get_gamification_dashboard(self) -> dict:
+        """ゲーミフィケーションダッシュボードデータを取得"""
+        return self.gamification.get_dashboard_data()
+    
+    def get_player_level(self) -> int:
+        """プレイヤーレベルを取得"""
+        return self.gamification.level
+    
+    def get_player_xp(self) -> int:
+        """プレイヤーXPを取得"""
+        return self.gamification.xp
+    
+    def get_current_streak(self) -> int:
+        """現在のストリークを取得"""
+        return self.gamification.current_streak
+    
+    def get_achievements(self) -> dict:
+        """達成バッジ情報を取得"""
+        return {
+            "unlocked": [a for a in self.gamification.achievements.values() if a.unlocked],
+            "locked": [a for a in self.gamification.achievements.values() if not a.unlocked]
+        }
 
 
 # 使用例
@@ -221,8 +251,14 @@ if __name__ == "__main__":
     def on_recipe_spawned(sender, args):
         print("新しいレシピが生成されました！")
     
-    def on_recipe_success(sender, args):
+    def on_recipe_success(sender, gamification_result):
         print("レシピ配達成功！")
+        print(f"🎉 +{gamification_result['xp_gained']} XP獲得!")
+        print(f"📊 レベル: {gamification_result['current_level']} (XP: {gamification_result['current_xp']})")
+        print(f"🔥 ストリーク: {gamification_result['current_streak']}日")
+        if gamification_result['new_level']:
+            print(f"🎊 レベルアップ! レベル{gamification_result['current_level']}に到達!")
+        print(f"📈 次レベルまであと{gamification_result['xp_to_next_level']} XP")
     
     def on_recipe_failed(sender, args):
         print("レシピ配達失敗...")
@@ -252,3 +288,36 @@ if __name__ == "__main__":
     delivery_manager.deliver_recipe(plate)
     
     print(f"成功したレシピ数: {delivery_manager.get_successful_recipes_amount()}")
+    
+    # ゲーミフィケーション情報の表示
+    print("\n=== ゲーミフィケーション情報 ===")
+    dashboard = delivery_manager.get_gamification_dashboard()
+    print(f"レベル: {dashboard['level']}")
+    print(f"XP: {dashboard['xp']} (次レベルまで: {dashboard['xp_to_next_level']})")
+    print(f"ストリーク: {dashboard['current_streak']}日 (最高記録: {dashboard['best_streak']}日)")
+    print(f"総ポモドーロ数: {dashboard['total_pomodoros']}")
+    print(f"今週のポモドーロ数: {dashboard['weekly_pomodoros']}")
+    print(f"今月のポモドーロ数: {dashboard['monthly_pomodoros']}")
+    
+    print("\n=== 達成バッジ ===")
+    achievements = delivery_manager.get_achievements()
+    print("🏆 アンロック済み:")
+    for achievement in achievements['unlocked']:
+        print(f"  {achievement.name}: {achievement.description}")
+    
+    print("🔒 未達成:")
+    for achievement in achievements['locked'][:5]:  # 最初の5つだけ表示
+        print(f"  {achievement.name}: {achievement.description}")
+    
+    # 追加のポモドーロを実行してレベルアップをデモ
+    print("\n=== 追加ポモドーロでレベルアップデモ ===")
+    for i in range(7):  # 計10回でレベルアップ
+        plate2 = PlateKitchenObject()
+        plate2.add_kitchen_object(lettuce)
+        plate2.add_kitchen_object(tomato)
+        print(f"\nサラダ {i+1} を配達...")
+        delivery_manager.deliver_recipe(plate2)
+    
+    print(f"\n最終的な成功したレシピ数: {delivery_manager.get_successful_recipes_amount()}")
+    print(f"最終レベル: {delivery_manager.get_player_level()}")
+    print(f"最終XP: {delivery_manager.get_player_xp()}")
